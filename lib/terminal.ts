@@ -351,20 +351,20 @@ export class Terminal implements ITerminalCore {
     this.isOpen = true;
 
     try {
-      // Make parent focusable if it isn't already
-      if (!parent.hasAttribute('tabindex')) {
-        parent.setAttribute('tabindex', '0');
-      }
-
-      // Mark as contenteditable so browser extensions (Vimium, etc.) recognize
-      // this as an input element and don't intercept keyboard events.
-      parent.setAttribute('contenteditable', 'true');
-      // Prevent actual content editing - we handle input ourselves
-      parent.addEventListener('beforeinput', (e) => {
-        if (e.target === parent) {
-          e.preventDefault();
-        }
-      });
+      // Set tabindex="-1" on parent so it is not focusable via click/tab.
+      // We route ALL focus to the hidden textarea so IME composition events
+      // (Korean, Chinese, Japanese) fire on the element our listeners are
+      // attached to. Composition events fire on the focused element only.
+      //
+      // We intentionally do NOT set contenteditable on the parent container.
+      // Setting it caused IME (CJK) input to be inserted directly into the
+      // container as text nodes, bypassing our textarea.
+      //
+      // NOTE: removing contenteditable may bring back the browser-extension
+      // key-interception regression that #78 fixed with that attribute.
+      // The textarea is itself a real input element so most extensions
+      // (Vimium, etc.) should leave it alone — to be verified in browser.
+      parent.setAttribute('tabindex', '-1');
 
       // Add accessibility attributes for screen readers and extensions
       parent.setAttribute('role', 'textbox');
@@ -415,6 +415,20 @@ export class Terminal implements ITerminalCore {
       // Mobile: touchend with preventDefault to suppress iOS caret
       this.canvas.addEventListener('touchend', (ev) => {
         ev.preventDefault();
+        textarea.focus();
+      });
+      // Redirect focus from the parent container to the textarea so that
+      // IME composition events always fire on the textarea (where our
+      // listeners live). Without this, clicking on the container border
+      // (outside the canvas) would put focus on parent — the textarea
+      // would not receive composition events.
+      parent.addEventListener('mousedown', (ev) => {
+        if (ev.target === parent) {
+          ev.preventDefault();
+          textarea.focus();
+        }
+      });
+      parent.addEventListener('focus', () => {
         textarea.focus();
       });
 
@@ -763,15 +777,22 @@ export class Terminal implements ITerminalCore {
    * Focus terminal input
    */
   focus(): void {
-    if (this.isOpen && this.element) {
-      // Focus immediately for immediate keyboard/wheel event handling
-      this.element.focus();
+    if (this.isOpen) {
+      // Focus the textarea (not the container) for keyboard / IME input.
+      // The textarea is the actual input element that receives keyboard
+      // events and IME composition events. Focusing the container does
+      // not work for IME because composition events fire on the focused
+      // element only.
+      const target = this.textarea || this.element;
+      if (target) {
+        target.focus();
 
-      // Also schedule a delayed focus as backup to ensure it sticks
-      // (some browsers may need this if DOM isn't fully settled)
-      setTimeout(() => {
-        this.element?.focus();
-      }, 0);
+        // Also schedule a delayed focus as backup to ensure it sticks
+        // (some browsers may need this if DOM isn't fully settled)
+        setTimeout(() => {
+          target?.focus();
+        }, 0);
+      }
     }
   }
 
@@ -1268,8 +1289,9 @@ export class Terminal implements ITerminalCore {
       this.element.removeEventListener('mouseleave', this.handleMouseLeave);
       this.element.removeEventListener('click', this.handleClick);
 
-      // Remove contenteditable and accessibility attributes added in open()
-      this.element.removeAttribute('contenteditable');
+      // Remove accessibility attributes added in open().
+      // (contenteditable is no longer set on the parent — we focus the
+      // textarea directly for IME support; see open() comments.)
       this.element.removeAttribute('role');
       this.element.removeAttribute('aria-label');
       this.element.removeAttribute('aria-multiline');
