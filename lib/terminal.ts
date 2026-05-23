@@ -103,6 +103,18 @@ export class Terminal implements ITerminalCore {
   private animationFrameId?: number;
   private writeQueue: Uint8Array[] = [];
 
+  /**
+   * Issue #161 (echo latency): true between the moment a keystroke has been
+   * emitted via onData and the very next write() that processes the echo
+   * coming back from the PTY. When set, writeInternal does a synchronous
+   * render call right after the WASM write, instead of waiting for the
+   * next requestAnimationFrame tick. The browser sometimes defers rAF, so
+   * sending a key and waiting for the echo can feel sluggish — this trick
+   * keeps the perceived latency at one PTY round-trip instead of one
+   * round-trip + one frame.
+   */
+  private awaitingEcho = false;
+
   // Addons
   private addons: ITerminalAddon[] = [];
 
@@ -459,6 +471,7 @@ export class Terminal implements ITerminalCore {
           // Clear selection when user types
           this.selectionManager?.clearSelection();
           // Input handler fires data events
+          this.awaitingEcho = true;
           this.dataEmitter.fire(data);
         },
         () => {
@@ -619,7 +632,20 @@ export class Terminal implements ITerminalCore {
       requestAnimationFrame(callback);
     }
 
-    // Render will happen on next animation frame
+    // Issue #161 — echo latency: when the user has just emitted input via
+    // onData, the echo coming back from the PTY arrives here. Browsers
+    // sometimes defer the next requestAnimationFrame tick (background
+    // tabs, frame budget pressure, etc.), making typing feel laggy. If
+    // we know we are draining an echo response, render synchronously so
+    // the new bytes hit the canvas at this exact tick. After this point
+    // the row is marked clean so the regular rAF render loop sees nothing
+    // to redo — no double-paint cost.
+    if (this.awaitingEcho && this.renderer && this.wasmTerm) {
+      this.awaitingEcho = false;
+      this.renderer.render(this.wasmTerm, false, this.viewportY, this, this.scrollbarOpacity);
+    }
+
+    // Render will happen on next animation frame (if not already drained above)
   }
 
   /**
@@ -650,6 +676,7 @@ export class Terminal implements ITerminalCore {
     }
 
     // Check if terminal has bracketed paste mode enabled
+    this.awaitingEcho = true;
     if (this.wasmTerm!.hasBracketedPaste()) {
       // Wrap with bracketed paste sequences (DEC mode 2004)
       this.dataEmitter.fire('\x1b[200~' + data + '\x1b[201~');
@@ -675,6 +702,7 @@ export class Terminal implements ITerminalCore {
 
     if (wasUserInput) {
       // Trigger onData event as if user typed it
+      this.awaitingEcho = true;
       this.dataEmitter.fire(data);
     } else {
       // Just write to terminal without triggering onData

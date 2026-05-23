@@ -3090,3 +3090,58 @@ describe('preserveScrollOnWrite option', () => {
     term.dispose();
   });
 });
+
+describe('echo latency optimization (issue #161)', () => {
+  let container: HTMLElement | null = null;
+
+  beforeEach(() => {
+    if (typeof document !== 'undefined') {
+      container = document.createElement('div');
+      document.body.appendChild(container);
+    }
+  });
+
+  afterEach(() => {
+    if (container && container.parentNode) {
+      container.parentNode.removeChild(container);
+      container = null;
+    }
+  });
+
+  test('write() after a user-input fire renders synchronously instead of waiting for rAF', async () => {
+    if (!container) return;
+
+    const term = await createIsolatedTerminal({ cols: 80, rows: 24 });
+    term.open(container);
+
+    let renderCount = 0;
+    const renderer = (term as any).renderer;
+    const originalRender = renderer.render.bind(renderer);
+    renderer.render = (...args: unknown[]) => {
+      renderCount++;
+      return originalRender(...args);
+    };
+    // Drain any opening renders before counting.
+    await new Promise((r) => setTimeout(r, 16));
+    renderCount = 0;
+
+    // Simulate the user typing — input(data, /* wasUserInput */ true) sets
+    // awaitingEcho before firing dataEmitter.
+    term.input('x', true);
+
+    // The actual echo bytes arrive next:
+    term.write('x');
+
+    // The synchronous render should have run during writeInternal.
+    expect(renderCount).toBeGreaterThanOrEqual(1);
+
+    // And the flag should be cleared so a subsequent write without user
+    // input doesn't trigger another synchronous render.
+    renderCount = 0;
+    term.write('more output');
+    expect(renderCount).toBe(0);
+
+    renderer.render = originalRender;
+    term.dispose();
+  });
+});
