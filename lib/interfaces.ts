@@ -32,6 +32,13 @@ export interface ITerminalOptions {
    */
   preserveScrollOnWrite?: boolean;
 
+  // Emit terminal-generated responses through onData (default: true)
+  //
+  // Some host applications answer terminal queries at the PTY boundary instead
+  // of in the renderer. Disable this to keep parser-generated replies, such as
+  // DSR responses, out of the same stream as user keyboard input.
+  emitTerminalResponses?: boolean;
+
   // Internal: Ghostty WASM instance (optional, for test isolation)
   // If not provided, uses the module-level instance from init()
   ghostty?: Ghostty;
