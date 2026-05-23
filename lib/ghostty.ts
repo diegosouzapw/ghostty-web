@@ -31,9 +31,9 @@ export {
   type GhosttyCell,
   type GhosttyTerminalConfig,
   KeyEncoderOption,
-  type RGB,
   type RenderStateColors,
   type RenderStateCursor,
+  type RGB,
 };
 
 /**
@@ -399,8 +399,11 @@ export class GhosttyTerminal {
       viewportX: this.exports.ghostty_render_state_get_cursor_x(this.handle),
       viewportY: this.exports.ghostty_render_state_get_cursor_y(this.handle),
       visible: this.exports.ghostty_render_state_get_cursor_visible(this.handle),
-      blinking: false, // TODO: Add blinking support
-      style: 'block', // TODO: Add style support
+      blinking: this.exports.ghostty_render_state_get_cursor_blinking(this.handle),
+      style:
+        (['block', 'bar', 'underline'] as const)[
+          this.exports.ghostty_render_state_get_cursor_style(this.handle)
+        ] ?? 'block',
     };
   }
 

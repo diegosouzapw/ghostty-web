@@ -1160,7 +1160,7 @@ describe('InputHandler', () => {
       expect(dataReceived.length).toBe(0);
     });
 
-    test('allows Ctrl+V to trigger paste', () => {
+    test('Ctrl+V forwards \\x16 to the PTY and still allows the paste event', () => {
       const handler = new InputHandler(
         ghostty,
         container as any,
@@ -1170,13 +1170,17 @@ describe('InputHandler', () => {
         }
       );
 
-      // Ctrl+V should NOT call onData callback (lets paste event handle it)
+      // Ctrl+V emits \x16 (SYN) via the Ghostty key encoder so native PTY
+      // consumers (e.g. opencode image paste via osascript) receive the
+      // signal. The browser-side paste event still fires immediately
+      // after so handlePaste handles text-content paste as before.
       simulateKey(container, createKeyEvent('KeyV', 'v', { ctrl: true }));
 
-      expect(dataReceived.length).toBe(0);
+      expect(dataReceived.length).toBe(1);
+      expect(dataReceived[0]).toBe('\x16');
     });
 
-    test('allows Cmd+V to trigger paste', () => {
+    test('Cmd+V on macOS does not emit a byte (Super modifier has no terminal sequence) — paste event still fires', () => {
       const handler = new InputHandler(
         ghostty,
         container as any,
@@ -1186,7 +1190,9 @@ describe('InputHandler', () => {
         }
       );
 
-      // Cmd+V should NOT call onData callback (lets paste event handle it)
+      // The Ghostty encoder returns empty bytes for Super+V (no standard
+      // terminal sequence exists for Cmd modifier). The handler still
+      // returns early so the browser's paste event fires for text content.
       simulateKey(container, createKeyEvent('KeyV', 'v', { meta: true }));
 
       expect(dataReceived.length).toBe(0);
