@@ -152,6 +152,7 @@ export class Terminal implements ITerminalCore {
       disableStdin: options.disableStdin ?? false,
       smoothScrollDuration: options.smoothScrollDuration ?? 100, // Default: 100ms smooth scroll
       focusOnOpen: options.focusOnOpen ?? true,
+      preserveScrollOnWrite: options.preserveScrollOnWrite ?? false,
     };
 
     // Wrap in Proxy to intercept runtime changes (xterm.js compatibility)
@@ -560,6 +561,15 @@ export class Terminal implements ITerminalCore {
     // preserve selection when new data arrives. Selection is cleared by user actions
     // like clicking or typing, not by incoming data.
 
+    // Save scroll state before writing, ONLY when preserveScrollOnWrite is
+    // active. viewportY is relative to the bottom, so if new lines push
+    // content into scrollback we need to bump viewportY by the same amount
+    // to keep the viewport locked on the same content.
+    const preserveScroll = this.options.preserveScrollOnWrite === true;
+    const savedViewportY = preserveScroll ? this.viewportY : 0;
+    const savedScrollback =
+      preserveScroll && savedViewportY > 0 ? this.wasmTerm!.getScrollbackLength() : 0;
+
     // Write directly to WASM terminal (handles VT parsing internally)
     this.wasmTerm!.write(data);
 
@@ -578,8 +588,22 @@ export class Terminal implements ITerminalCore {
     // Invalidate link cache (content changed)
     this.linkDetector?.invalidateCache();
 
-    // Phase 2: Auto-scroll to bottom on new output (xterm.js behavior)
-    if (this.viewportY !== 0) {
+    if (preserveScroll) {
+      // New behaviour: lock the viewport to its current content as the
+      // scrollback grows. Clamp to the current scrollback length in case
+      // old lines were dropped by the scrollback limit.
+      if (savedViewportY > 0) {
+        const newScrollback = this.wasmTerm!.getScrollbackLength();
+        const delta = newScrollback - savedScrollback;
+        const newViewportY = Math.max(0, Math.min(savedViewportY + delta, newScrollback));
+        if (newViewportY !== savedViewportY) {
+          this.viewportY = newViewportY;
+          this.scrollEmitter.fire(this.viewportY);
+          if (newScrollback > 0) this.showScrollbar();
+        }
+      }
+    } else if (this.viewportY !== 0) {
+      // Default xterm.js-style behaviour: auto-scroll to bottom on new output.
       this.scrollToBottom();
     }
 

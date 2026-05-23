@@ -3021,3 +3021,72 @@ describe('Synchronous open()', () => {
     term.dispose();
   });
 });
+
+describe('preserveScrollOnWrite option', () => {
+  let container: HTMLElement | null = null;
+
+  beforeEach(() => {
+    if (typeof document !== 'undefined') {
+      container = document.createElement('div');
+      document.body.appendChild(container);
+    }
+  });
+
+  afterEach(() => {
+    if (container && container.parentNode) {
+      container.parentNode.removeChild(container);
+      container = null;
+    }
+  });
+
+  test('default (false): writes auto-scroll viewport to bottom (legacy behaviour)', async () => {
+    if (!container) return;
+
+    const term = await createIsolatedTerminal({ cols: 80, rows: 5, scrollback: 50000 });
+    term.open(container);
+
+    // Fill scrollback so viewportY can move off zero
+    for (let i = 0; i < 200; i++) term.write(`line ${i}\r\n`);
+
+    // Simulate user scrolling up
+    const before = term.wasmTerm!.getScrollbackLength();
+    term.scrollLines(-10);
+    expect(term.viewportY).toBeGreaterThan(0);
+
+    // New output arrives — legacy behaviour snaps the viewport back to bottom
+    term.write('new output\r\n');
+    expect(term.viewportY).toBe(0);
+    expect(term.wasmTerm!.getScrollbackLength()).toBeGreaterThanOrEqual(before);
+
+    term.dispose();
+  });
+
+  test('preserveScrollOnWrite=true: viewport stays locked on the same content', async () => {
+    if (!container) return;
+
+    const term = await createIsolatedTerminal({
+      cols: 80,
+      rows: 5,
+      scrollback: 50000,
+      preserveScrollOnWrite: true,
+    });
+    term.open(container);
+
+    for (let i = 0; i < 200; i++) term.write(`line ${i}\r\n`);
+
+    term.scrollLines(-10);
+    const savedViewportY = term.viewportY;
+    const savedScrollback = term.wasmTerm!.getScrollbackLength();
+    expect(savedViewportY).toBeGreaterThan(0);
+
+    term.write('extra line\r\n');
+    const newScrollback = term.wasmTerm!.getScrollbackLength();
+    const delta = newScrollback - savedScrollback;
+
+    // viewportY should have shifted by the scrollback delta (or clamped) — NOT snapped to 0
+    expect(term.viewportY).not.toBe(0);
+    expect(term.viewportY).toBe(Math.max(0, Math.min(savedViewportY + delta, newScrollback)));
+
+    term.dispose();
+  });
+});
