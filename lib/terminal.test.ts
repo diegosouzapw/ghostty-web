@@ -3090,3 +3090,101 @@ describe('preserveScrollOnWrite option', () => {
     term.dispose();
   });
 });
+
+describe('ESC k title sequence (issue #153)', () => {
+  let container: HTMLElement | null = null;
+
+  beforeEach(() => {
+    if (typeof document !== 'undefined') {
+      container = document.createElement('div');
+      document.body.appendChild(container);
+    }
+  });
+
+  afterEach(() => {
+    if (container && container.parentNode) {
+      container.parentNode.removeChild(container);
+      container = null;
+    }
+  });
+
+  test('ESC k <text> ESC \\ does not leak the title payload onto the grid', async () => {
+    if (!container) return;
+
+    const term = await createIsolatedTerminal({ cols: 80, rows: 24 });
+    term.open(container);
+
+    // GNU screen / tmux title-set: ESC k /tmp ESC \ then ESC k ls ESC \
+    // then the actual visible content. Before the strip pass landed,
+    // /tmp leaked onto row 0 and "ls" merged with the next line.
+    term.write('\x1bk/tmp\x1b\\\x1bkls\x1b\\demo.txt\r\n');
+
+    const line0 = term.wasmTerm!.getLine(0);
+    const text0 = line0
+      .map((c) => (c.codepoint ? String.fromCodePoint(c.codepoint) : ''))
+      .join('')
+      .trimEnd();
+    expect(text0).toBe('demo.txt');
+    expect(text0).not.toContain('/tmp');
+    expect(text0).not.toContain('ls');
+
+    term.dispose();
+  });
+
+  test('ESC k variant terminated by BEL is also stripped', async () => {
+    if (!container) return;
+
+    const term = await createIsolatedTerminal({ cols: 80, rows: 24 });
+    term.open(container);
+
+    term.write('\x1bktitle\x07after\r\n');
+
+    const line0 = term.wasmTerm!.getLine(0);
+    const text0 = line0
+      .map((c) => (c.codepoint ? String.fromCodePoint(c.codepoint) : ''))
+      .join('')
+      .trimEnd();
+    expect(text0).toBe('after');
+
+    term.dispose();
+  });
+
+  test('OSC 0 title-set continues to be consumed by the WASM parser', async () => {
+    if (!container) return;
+
+    const term = await createIsolatedTerminal({ cols: 80, rows: 24 });
+    term.open(container);
+
+    // OSC 0 ; <title> BEL — handled by WASM. The strip pass should not
+    // touch this sequence.
+    term.write('\x1b]0;mywindow\x07visible\r\n');
+
+    const line0 = term.wasmTerm!.getLine(0);
+    const text0 = line0
+      .map((c) => (c.codepoint ? String.fromCodePoint(c.codepoint) : ''))
+      .join('')
+      .trimEnd();
+    expect(text0).toBe('visible');
+
+    term.dispose();
+  });
+
+  test('Uint8Array input is stripped equivalently to string input', async () => {
+    if (!container) return;
+
+    const term = await createIsolatedTerminal({ cols: 80, rows: 24 });
+    term.open(container);
+
+    const bytes = new TextEncoder().encode('\x1bktitle\x1b\\done\r\n');
+    term.write(bytes);
+
+    const line0 = term.wasmTerm!.getLine(0);
+    const text0 = line0
+      .map((c) => (c.codepoint ? String.fromCodePoint(c.codepoint) : ''))
+      .join('')
+      .trimEnd();
+    expect(text0).toBe('done');
+
+    term.dispose();
+  });
+});

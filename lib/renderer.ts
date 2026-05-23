@@ -324,13 +324,20 @@ export class CanvasRenderer {
           this.renderLine(line, cursor.y, dims.cols);
         }
       }
-      if (cursorMoved && this.lastCursorPosition.y !== cursor.y) {
-        // Also redraw old cursor line if cursor moved to different line
-        if (!forceAll && !buffer.isRowDirty(this.lastCursorPosition.y)) {
-          const line = buffer.getLine(this.lastCursorPosition.y);
-          if (line) {
-            this.renderLine(line, this.lastCursorPosition.y, dims.cols);
-          }
+      if (cursorMoved && !forceAll) {
+        // Always redraw the OLD cursor row to erase the previous cursor
+        // glyph, whether or not the row is dirty and whether or not it
+        // differs from the new cursor row (issue #122: ghost cursor
+        // persisted at the initial (0,0) position because the prior
+        // logic skipped the redraw when the row was already dirty —
+        // assuming the regular dirty pass would handle it — but the
+        // regular dirty pass only runs when buffer cells changed, not
+        // when the cursor moved across unchanged cells. A double redraw
+        // when the row is both dirty AND cursor-moved is a trivial perf
+        // cost compared to the visual correctness gain.).
+        const line = buffer.getLine(this.lastCursorPosition.y);
+        if (line) {
+          this.renderLine(line, this.lastCursorPosition.y, dims.cols);
         }
       }
     }
