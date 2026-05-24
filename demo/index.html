@@ -208,6 +208,11 @@
           console.log('Scroll position:', ydisp);
         });
 
+        // Expose globals for Playwright E2E tests
+        window.__ghosttyTerm = term;
+        window.__ghosttyFitAddon = fitAddon;
+        window.__ghosttyReady = true;
+
         // Connect to PTY server - terminal is ready immediately after open()
         console.log('[Demo] Terminal ready, connecting with size:', term.cols, 'x', term.rows);
         connectWebSocket();

@@ -592,11 +592,15 @@ export class SelectionManager {
         }
 
         if (this.hasSelection()) {
-          const text = this.getSelection();
-          if (text) {
-            this.copyToClipboard(text);
-            this.selectionChangedEmitter.fire();
+          try {
+            const text = this.getSelection();
+            if (text) {
+              this.copyToClipboard(text);
+            }
+          } catch {
+            // getSelection() can fail if WASM render state isn't ready
           }
+          this.selectionChangedEmitter.fire();
         }
       }
     };
@@ -617,11 +621,15 @@ export class SelectionManager {
           this.selectionEnd = { col: word.endCol, absoluteRow };
           this.requestRender();
 
-          const text = this.getSelection();
-          if (text) {
-            this.copyToClipboard(text);
-            this.selectionChangedEmitter.fire();
+          try {
+            const text = this.getSelection();
+            if (text) {
+              this.copyToClipboard(text);
+            }
+          } catch {
+            // getSelection() can fail if WASM render state isn't ready
           }
+          this.selectionChangedEmitter.fire();
         }
       } else if (e.detail >= 3) {
         // Triple-click (or more) - select line content (like native Ghostty)
@@ -658,11 +666,15 @@ export class SelectionManager {
           this.selectionEnd = { col: endCol, absoluteRow };
           this.requestRender();
 
-          const text = this.getSelection();
-          if (text) {
-            this.copyToClipboard(text);
-            this.selectionChangedEmitter.fire();
+          try {
+            const text = this.getSelection();
+            if (text) {
+              this.copyToClipboard(text);
+            }
+          } catch {
+            // getSelection() can fail if WASM render state isn't ready
           }
+          this.selectionChangedEmitter.fire();
         }
       }
     });
@@ -918,11 +930,16 @@ export class SelectionManager {
     const absoluteRow = this.viewportRowToAbsolute(row);
     const scrollbackLength = this.wasmTerm.getScrollbackLength();
     let line: GhosttyCell[] | null;
-    if (absoluteRow < scrollbackLength) {
-      line = this.wasmTerm.getScrollbackLine(absoluteRow);
-    } else {
-      const screenRow = absoluteRow - scrollbackLength;
-      line = this.wasmTerm.getLine(screenRow);
+    try {
+      if (absoluteRow < scrollbackLength) {
+        line = this.wasmTerm.getScrollbackLine(absoluteRow);
+      } else {
+        const screenRow = absoluteRow - scrollbackLength;
+        line = this.wasmTerm.getLine(screenRow);
+      }
+    } catch {
+      // WASM render state can be unavailable outside of render context
+      return null;
     }
     if (!line) return null;
 

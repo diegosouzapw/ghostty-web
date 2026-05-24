@@ -595,10 +595,24 @@ export class Terminal extends TerminalCore {
 
     if (typeof data === 'string' && data.includes('\x1b]')) {
       this.checkForTitleChange(data);
+      this.checkForShellIntegration(data);
     }
 
+    if (typeof data === 'string' && (data.includes('\n') || data.includes('\r\n'))) {
+      this.lineFeedEmitter.fire();
+    } else if (data instanceof Uint8Array && data.includes(0x0a)) {
+      this.lineFeedEmitter.fire();
+    }
+
+    this.checkCursorMove();
+
     if (callback) {
-      requestAnimationFrame(callback);
+      requestAnimationFrame(() => {
+        callback!();
+        this.writeParsedEmitter.fire();
+      });
+    } else {
+      this.writeParsedEmitter.fire();
     }
 
     if (this.awaitingEcho && this.renderer && this.wasmTerm) {
@@ -986,9 +1000,11 @@ export class Terminal extends TerminalCore {
     this.syncOutputStartTime = undefined;
 
     this.renderer!.render(this.wasmTerm!, false, this.viewportY, this, this.scrollbarOpacity);
+    this.renderEmitter.fire({ start: 0, end: this.rows - 1 });
 
     const cursor = this.wasmTerm!.getCursor();
-    if (cursor.y !== this.lastCursorY) {
+    if (cursor.x !== this.lastCursorX || cursor.y !== this.lastCursorY) {
+      this.lastCursorX = cursor.x;
       this.lastCursorY = cursor.y;
       this.cursorMoveEmitter.fire();
     }
@@ -1006,7 +1022,7 @@ export class Terminal extends TerminalCore {
   }
 
   // Track the last cursor applied so we only update the DOM when it changes.
-  private lastOsc22Cursor = 'text';
+  private lastOsc22Cursor = '';
 
   /**
    * Intercept OSC 22 mouse-cursor-shape sequences emitted by the PTY.

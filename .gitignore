@@ -15,3 +15,11 @@ _tasks/
 
 # Local dev container config (not part of the project)
 .devcontainer/
+
+# npm pack artifacts
+*.tgz
+
+# Playwright generated output (reports, traces, screenshots, videos)
+tests/e2e/report/
+tests/e2e/results/
+test-results/
